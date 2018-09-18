@@ -8,6 +8,25 @@ namespace variables {
 
 // Built-in variables ----------------------------------------------------------
 
+const char kEnableNativeJumbo[] = "enable_native_jumbo";
+const char kEnableNativeJumbo_HelpShort[] =
+    "enable_native_jumbo: [boolean] Enable jumbo mode to speed up compilation.";
+const char kEnableNativeJumbo_Help[] =
+    R"(enable_native_jumbo: [boolean] Enable jumbo mode to speed up compilation.
+
+  Enable jumbo mode to speed up compilation of targets that allow it.
+
+  In jumbo mode many translation units are merged and compiled together. This
+  reduces the amount of work needed to process shared header files. Linking is
+  faster because there is less redundant data (debug information, inline
+  functions) to merge.
+
+  This is Opera feature. It's implemented natively in GN binary and replaces the
+  jumbo mechanism implemented in .gni files.
+
+  See "gn help jumbo_allowed".
+)";
+
 const char kHostCpu[] = "host_cpu";
 const char kHostCpu_HelpShort[] =
     "host_cpu: [string] The processor architecture that GN is running on.";
@@ -1239,6 +1258,82 @@ Example
   }
 )";
 
+const char kJumboAllowed[] = "jumbo_allowed";
+const char kJumboAllowed_HelpShort[] =
+    "jumbo_allowed: [boolean] Allow jumbo mode for a target.";
+const char kJumboAllowed_Help[] =
+    R"(jumbo_allowed: [boolean] Allow jumbo mode for a target.
+
+  Allow merging files together for jumbo compilation in a target. Has no effect
+  if global variable "enable_native_jumbo" is not "true".
+
+  See "gn help enable_native_jumbo" for more information.
+
+  See also "gn help jumbo_excluded_sources" and
+  "gn help jumbo_file_merge_limit".
+
+Example
+
+  source_set("doom_melon") {
+    jumbo_allowed = true
+    sources = [ "a.cc", "b.cc" ]  # Both files will be compiled together.
+  }
+)";
+
+const char kJumboExcludedSources[] = "jumbo_excluded_sources";
+const char kJumboExcludedSources_HelpShort[] =
+    "jumbo_excluded_sources: [file list] Files not merged in jumbo mode.";
+const char kJumboExcludedSources_Help[] =
+    R"(jumbo_excluded_sources: [file list] Files not merged in jumbo mode.
+
+  List of source files that will not be merged with the rest in jumbo mode. This
+  can be necessary if merging the files causes compilation issues and fixing the
+  issues is impractical.
+
+  See also "gn help jumbo_allowed".
+
+Example
+
+  source_set("doom_melon") {
+    jumbo_allowed = true
+    # "a.cc", "c.cc" and "e.cc" will be compiled together. "b.cc" and "d.cc"
+    # will be compiled separately.
+    sources = [ "a.cc", "b.cc", "c.cc", "d.cc", "e.cc" ]
+    jumbo_excluded_sources = [ "b.cc", "d.cc" ]
+  }
+)";
+
+const char kJumboFileMergeLimit[] = "jumbo_file_merge_limit";
+const char kJumboFileMergeLimit_HelpShort[] =
+    "jumbo_file_merge_limit: [number] Maximum number of files to group.";
+const char kJumboFileMergeLimit_Help[] =
+    R"(jumbo_file_merge_limit: [number] Maximum number of files to group.
+
+  How many files to group at most. Smaller numbers give more parallellism,
+  higher numbers give less total CPU usage. Higher numbers also give longer
+  single-file recompilation times. The default is 50.
+
+  Recommendations:
+  Higher numbers than 100 does not reduce wall clock compile times even for 4
+  cores or less so no reason to go higher than 100. Going from 50 to 100 with a
+  4 core CPU saves about 3% CPU time and 3% wall clock time. At the same time it
+  increases the compile time for the largest jumbo chunks by 10-20% and reduces
+  the chance to use all available CPU cores. So set the default to 50 to balance
+  between high and low-core build performance.
+
+  See also "gn help jumbo_allowed".
+
+Example
+
+  source_set("doom_melon") {
+    jumbo_allowed = true
+    jumbo_file_merge_limit = 3
+    # "a.cc", "b.cc" and "c.cc" will be compiled together. "d.cc" and "e.cc"
+    # will be compiled together.
+    sources = [ "a.cc", "b.cc", "c.cc", "d.cc", "e.cc" ]
+  }
+)";
+
 const char kLdflags[] = "ldflags";
 const char kLdflags_HelpShort[] =
     "ldflags: [string list] Flags passed to the linker.";
@@ -2038,6 +2133,7 @@ const VariableInfoMap& GetBuiltinVariables() {
     INSERT_VARIABLE(CurrentOs)
     INSERT_VARIABLE(CurrentToolchain)
     INSERT_VARIABLE(DefaultToolchain)
+    INSERT_VARIABLE(EnableNativeJumbo)
     INSERT_VARIABLE(HostCpu)
     INSERT_VARIABLE(HostOs)
     INSERT_VARIABLE(Invoker)
@@ -2089,6 +2185,9 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(Friend)
     INSERT_VARIABLE(IncludeDirs)
     INSERT_VARIABLE(Inputs)
+    INSERT_VARIABLE(JumboAllowed)
+    INSERT_VARIABLE(JumboExcludedSources)
+    INSERT_VARIABLE(JumboFileMergeLimit)
     INSERT_VARIABLE(Ldflags)
     INSERT_VARIABLE(Libs)
     INSERT_VARIABLE(LibDirs)

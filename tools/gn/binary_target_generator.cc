@@ -4,11 +4,14 @@
 
 #include "tools/gn/binary_target_generator.h"
 
+#include <algorithm>
+
 #include "tools/gn/config_values_generator.h"
 #include "tools/gn/deps_iterator.h"
 #include "tools/gn/err.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/functions.h"
+#include "tools/gn/jumbo_file_list_generator.h"
 #include "tools/gn/scope.h"
 #include "tools/gn/settings.h"
 #include "tools/gn/value_extractors.h"
@@ -66,6 +69,23 @@ void BinaryTargetGenerator::DoRun() {
   gen.Run();
   if (err_->has_error())
     return;
+
+  if (!FillJumboAllowed())
+    return;
+
+  if (!FillJumboExcludedSources())
+    return;
+
+  if (!FillJumboFileMergeLimit())
+    return;
+
+  if (target_->is_jumbo_allowed()) {
+    JumboFileListGenerator jumbo_generator(target_, &target_->jumbo_files(),
+                                           err_);
+    jumbo_generator.Run();
+    if (err_->has_error())
+      return;
+  }
 }
 
 bool BinaryTargetGenerator::FillCompleteStaticLib() {
@@ -177,5 +197,81 @@ bool BinaryTargetGenerator::FillAllowCircularIncludesFrom() {
   // Add to the set.
   for (const auto& cur : circular)
     target_->allow_circular_includes_from().insert(cur);
+  return true;
+}
+
+bool BinaryTargetGenerator::FillJumboAllowed() {
+  const Value* value = scope_->GetValue(variables::kJumboAllowed, true);
+  if (!value)
+    return true;
+
+  if (!value->VerifyTypeIs(Value::BOOLEAN, err_))
+    return false;
+
+  target_->set_jumbo_allowed(value->boolean_value());
+  return true;
+}
+
+bool BinaryTargetGenerator::FillJumboExcludedSources() {
+  const Value* value = scope_->GetValue(variables::kJumboExcludedSources, true);
+  if (!value)
+    return true;
+
+  if (!target_->is_jumbo_allowed()) {
+    // TODO(tmoniuszko): We currently don't report error here because we want
+    // to support non-native jumbo implementation from BUILD.gn scripts.
+    // For native-only jumbo we would display such error:
+    // *err_ = Err(*value, "Jumbo is not allowed for this target.");
+    return false;
+  }
+
+  Target::FileList jumbo_excluded_sources;
+  if (!ExtractListOfRelativeFiles(scope_->settings()->build_settings(), *value,
+                                  scope_->GetSourceDir(),
+                                  &jumbo_excluded_sources, err_)) {
+    return false;
+  }
+
+  // Excluded files should be in sources. jumbo_excluded_sources is intended to
+  // exclude only small amount of files that cause compilation issues so
+  // searching for every file in loop should be acceptable despite of time
+  // complexity.
+  const Target::FileList& sources = target_->sources();
+  for (const SourceFile& file : jumbo_excluded_sources) {
+    if (std::find(sources.begin(), sources.end(), file) == sources.end()) {
+      *err_ = Err(*value, "Excluded file not in sources.",
+                  "The file \"" + file.value() + "\" was not in \"sources\"." +
+                      "  " + sources.front().value());
+      return false;
+    }
+  }
+
+  target_->jumbo_excluded_sources().swap(jumbo_excluded_sources);
+  return true;
+}
+
+bool BinaryTargetGenerator::FillJumboFileMergeLimit() {
+  const Value* value = scope_->GetValue(variables::kJumboFileMergeLimit, true);
+  if (!value)
+    return true;
+
+  if (!target_->is_jumbo_allowed()) {
+    // TODO(tmoniuszko): We currently don't report error here because we want
+    // to support non-native jumbo implementation from BUILD.gn scripts.
+    // For native-only jumbo we would display such error:
+    // *err_ = Err(*value, "Jumbo is not allowed for this target.");
+    return false;
+  }
+
+  if (!value->VerifyTypeIs(Value::INTEGER, err_))
+    return false;
+
+  int jumbo_file_merge_limit = value->int_value();
+  if (jumbo_file_merge_limit < 2) {
+    *err_ = Err(*value, "Value must be greater than 1.");
+    return false;
+  }
+
+  target_->set_jumbo_file_merge_limit(jumbo_file_merge_limit);
   return true;
 }
