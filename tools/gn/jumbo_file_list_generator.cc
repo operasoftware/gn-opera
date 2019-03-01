@@ -31,9 +31,6 @@ std::string GetJumboFileName(const std::string& target_name,
     case SOURCE_MM:
       extension = "mm";
       break;
-    case SOURCE_S:
-      extension = "s";
-      break;
     default:
       return std::string();
   }
@@ -64,7 +61,7 @@ void JumboFileListGenerator::Run() {
   for (const SourceFile& input : target_->sources()) {
     SourceFileType file_type = GetSourceFileType(input);
     if (file_type != SOURCE_C && file_type != SOURCE_CPP &&
-        file_type != SOURCE_MM && file_type != SOURCE_S) {
+        file_type != SOURCE_MM) {
       continue;
     }
 

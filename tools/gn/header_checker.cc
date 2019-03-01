@@ -582,6 +582,7 @@ Err HeaderChecker::MakeUnreachableError(const InputFile& source_file,
 
   // Only display toolchains on labels if they don't all match.
   bool include_toolchain = !targets_with_other_toolchains.empty();
+  include_toolchain = true;
 
   std::string msg = "It is not in any dependency of\n  " +
                     from_target->label().GetUserVisibleName(include_toolchain);
