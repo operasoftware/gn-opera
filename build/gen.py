@@ -140,9 +140,10 @@ def main(argv):
 
 def GenerateLastCommitPosition(host, header):
   ROOT_TAG = 'initial-commit'
+  # Use HEAD@{1} so original Chromium and Opera (patched) versions are the same.
   describe_output = subprocess.check_output(
-      ['git', 'describe', 'HEAD', '--match', ROOT_TAG], shell=host.is_windows(),
-      cwd=REPO_ROOT)
+      ['git', 'describe', 'HEAD~', '--match', ROOT_TAG],
+      shell=host.is_windows(), cwd=REPO_ROOT)
   mo = re.match(ROOT_TAG + '-(\d+)-g([0-9a-f]+)', describe_output.decode())
   if not mo:
     raise ValueError(
@@ -533,6 +534,8 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/input_file_manager.cc',
         'src/gn/item.cc',
         'src/gn/json_project_writer.cc',
+        'src/gn/jumbo_file_list_generator.cc',
+        'src/gn/jumbo_writer.cc',
         'src/gn/label.cc',
         'src/gn/label_pattern.cc',
         'src/gn/lib_file.cc',
@@ -650,6 +653,8 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/inherited_libraries_unittest.cc',
         'src/gn/input_conversion_unittest.cc',
         'src/gn/json_project_writer_unittest.cc',
+        'src/gn/jumbo_file_list_generator_unittest.cc',
+        'src/gn/jumbo_writer_unittest.cc',
         'src/gn/rust_project_writer_unittest.cc',
         'src/gn/label_pattern_unittest.cc',
         'src/gn/label_unittest.cc',
