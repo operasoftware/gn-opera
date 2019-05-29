@@ -121,9 +121,10 @@ def main(argv):
 
 def GenerateLastCommitPosition(host, header):
   ROOT_TAG = 'initial-commit'
+  # Use HEAD@{1} so original Chromium and Opera (patched) versions are the same.
   describe_output = subprocess.check_output(
-      ['git', 'describe', 'HEAD', '--match', ROOT_TAG], shell=host.is_windows(),
-      cwd=REPO_ROOT)
+      ['git', 'describe', 'HEAD@{1}', '--match', ROOT_TAG],
+      shell=host.is_windows(), cwd=REPO_ROOT)
   mo = re.match(ROOT_TAG + '-(\d+)-g([0-9a-f]+)', describe_output.decode())
   if not mo:
     raise ValueError(
@@ -487,6 +488,8 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/input_file_manager.cc',
         'tools/gn/item.cc',
         'tools/gn/json_project_writer.cc',
+        'tools/gn/jumbo_file_list_generator.cc',
+        'tools/gn/jumbo_writer.cc',
         'tools/gn/label.cc',
         'tools/gn/label_pattern.cc',
         'tools/gn/lib_file.cc',
@@ -599,6 +602,8 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/inherited_libraries_unittest.cc',
         'tools/gn/input_conversion_unittest.cc',
         'tools/gn/json_project_writer_unittest.cc',
+        'tools/gn/jumbo_file_list_generator_unittest.cc',
+        'tools/gn/jumbo_writer_unittest.cc',
         'tools/gn/label_pattern_unittest.cc',
         'tools/gn/label_unittest.cc',
         'tools/gn/loader_unittest.cc',
