@@ -7,12 +7,16 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <unordered_set>
 
 #include "base/strings/string_util.h"
+#include "gn/args.h"
+#include "gn/build_settings.h"
 #include "gn/c_substitution_type.h"
 #include "gn/config_values_extractors.h"
 #include "gn/deps_iterator.h"
@@ -20,6 +24,7 @@
 #include "gn/escape.h"
 #include "gn/filesystem_utils.h"
 #include "gn/general_tool.h"
+#include "gn/jumbo_writer.h"
 #include "gn/ninja_target_command_util.h"
 #include "gn/ninja_utils.h"
 #include "gn/scheduler.h"
@@ -27,6 +32,7 @@
 #include "gn/string_utils.h"
 #include "gn/substitution_writer.h"
 #include "gn/target.h"
+#include "gn/variables.h"
 
 namespace {
 
@@ -50,6 +56,92 @@ const char* GetPCHLangForToolType(const char* name) {
     return "objective-c++-header";
   NOTREACHED() << "Not a valid PCH tool type: " << name;
   return "";
+}
+
+// Prepares information needed to write build line for |source| file. Returns
+// Tool::kToolNone if |source| doesn't need any build command.
+const char* PrepareCompilerBuildLine(
+    const Target& target,
+    const SourceFile& source,
+    const std::vector<OutputFile>& pch_deps,
+    const OutputFile& input_dep,
+    std::vector<OutputFile>* extra_deps,
+    std::vector<OutputFile>* tool_outputs,
+    std::vector<SourceFile>* other_files) {
+  const char* tool_name = Tool::kToolNone;
+  if (!target.GetOutputFilesForSource(source, &tool_name, tool_outputs)) {
+    if (source.type() == SourceFile::SOURCE_DEF)
+      other_files->push_back(source);
+    return tool_name;  // No output for this source.
+  }
+
+  if (!input_dep.value().empty())
+    extra_deps->push_back(input_dep);
+
+  if (tool_name != Tool::kToolNone) {
+    // Only include PCH deps that correspond to the tool type, for instance,
+    // do not specify target_name.precompile.cc.obj (a CXX PCH file) as a dep
+    // for the output of a C tool type.
+    //
+    // This makes the assumption that pch_deps only contains pch output files
+    // with the naming scheme specified in GetWindowsPCHObjectExtension or
+    // GetGCCPCHOutputExtension.
+    const CTool* tool = target.toolchain()->GetToolAsC(tool_name);
+    if (tool->precompiled_header_type() != CTool::PCH_NONE) {
+      for (const auto& dep : pch_deps) {
+        const std::string& output_value = dep.value();
+        size_t extension_offset = FindExtensionOffset(output_value);
+        if (extension_offset == std::string::npos)
+          continue;
+        std::string output_extension;
+        if (tool->precompiled_header_type() == CTool::PCH_MSVC) {
+          output_extension = GetWindowsPCHObjectExtension(
+              tool_name, output_value.substr(extension_offset - 1));
+        } else if (tool->precompiled_header_type() == CTool::PCH_GCC) {
+          output_extension = GetGCCPCHOutputExtension(tool_name);
+        }
+        if (output_value.compare(output_value.size() - output_extension.size(),
+                                 output_extension.size(),
+                                 output_extension) == 0) {
+          extra_deps->push_back(dep);
+        }
+      }
+    }
+  }
+
+  return tool_name;
+}
+
+// Returns true if jumbo mode is globally enabled and allowed for |target|.
+bool IsJumboEnabledForTarget(const Target* target) {
+  if (!target->is_jumbo_allowed())
+    return false;
+
+  const Value* value =
+      target->settings()->build_settings()->build_args().GetArgOverride(
+          variables::kEnableNativeJumbo);
+  return value && value->type() == Value::BOOLEAN && value->boolean_value();
+}
+
+// Returns a list of files that should be compiled for |target| considering
+// jumbo mode. Function may use |sources| as a handy storage and return a
+// reference to it.
+const Target::FileList& GetSourcesForTarget(const Target* target,
+                                            Target::FileList* sources) {
+  const bool use_jumbo = IsJumboEnabledForTarget(target);
+
+  if (use_jumbo) {
+    std::transform(target->jumbo_files().begin(), target->jumbo_files().end(),
+                   std::back_inserter(*sources),
+                   [](const Target::JumboSourceFile& jumbo_file) -> SourceFile {
+                     return jumbo_file.first;
+                   });
+
+    sources->insert(sources->end(), target->jumbo_excluded_sources().begin(),
+                    target->jumbo_excluded_sources().end());
+  }
+
+  return use_jumbo ? *sources : target->sources();
 }
 
 }  // namespace
@@ -109,6 +201,9 @@ void NinjaCBinaryTargetWriter::Run() {
                    &pch_other_files);
   std::vector<OutputFile>* pch_files =
       !pch_obj_files.empty() ? &pch_obj_files : &pch_other_files;
+
+  if (IsJumboEnabledForTarget(target_))
+    JumboWriter::RunAndWriteFiles(target_);
 
   // Treat all pch output files as explicit dependencies of all
   // compiles that support them. Some notes:
@@ -385,60 +480,50 @@ void NinjaCBinaryTargetWriter::WriteSources(
     const std::vector<OutputFile>& order_only_deps,
     std::vector<OutputFile>* object_files,
     std::vector<SourceFile>* other_files) {
-  object_files->reserve(object_files->size() + target_->sources().size());
+  Target::FileList temp_sources;
+  const Target::FileList& sources = GetSourcesForTarget(target_, &temp_sources);
+
+  object_files->reserve(object_files->size() + sources.size());
 
   std::vector<OutputFile> tool_outputs;  // Prevent reallocation in loop.
   std::vector<OutputFile> deps;
-  for (const auto& source : target_->sources()) {
+  for (const auto& source : sources) {
     // Clear the vector but maintain the max capacity to prevent reallocations.
     deps.resize(0);
-    const char* tool_name = Tool::kToolNone;
-    if (!target_->GetOutputFilesForSource(source, &tool_name, &tool_outputs)) {
-      if (source.type() == SourceFile::SOURCE_DEF)
-        other_files->push_back(source);
-      continue;  // No output for this source.
-    }
-
-    if (!input_dep.value().empty())
-      deps.push_back(input_dep);
-
+    const char* tool_name =
+        PrepareCompilerBuildLine(*target_, source, pch_deps, input_dep, &deps,
+                                 &tool_outputs, other_files);
     if (tool_name != Tool::kToolNone) {
-      // Only include PCH deps that correspond to the tool type, for instance,
-      // do not specify target_name.precompile.cc.obj (a CXX PCH file) as a dep
-      // for the output of a C tool type.
-      //
-      // This makes the assumption that pch_deps only contains pch output files
-      // with the naming scheme specified in GetWindowsPCHObjectExtension or
-      // GetGCCPCHOutputExtension.
-      const CTool* tool = target_->toolchain()->GetToolAsC(tool_name);
-      if (tool->precompiled_header_type() != CTool::PCH_NONE) {
-        for (const auto& dep : pch_deps) {
-          const std::string& output_value = dep.value();
-          size_t extension_offset = FindExtensionOffset(output_value);
-          if (extension_offset == std::string::npos)
-            continue;
-          std::string output_extension;
-          if (tool->precompiled_header_type() == CTool::PCH_MSVC) {
-            output_extension = GetWindowsPCHObjectExtension(
-                tool_name, output_value.substr(extension_offset - 1));
-          } else if (tool->precompiled_header_type() == CTool::PCH_GCC) {
-            output_extension = GetGCCPCHOutputExtension(tool_name);
-          }
-          if (output_value.compare(
-                  output_value.size() - output_extension.size(),
-                  output_extension.size(), output_extension) == 0) {
-            deps.push_back(dep);
-          }
-        }
-      }
       WriteCompilerBuildLine(source, deps, order_only_deps, tool_name,
                              tool_outputs);
     }
 
-    // It's theoretically possible for a compiler to produce more than one
-    // output, but we'll only link to the first output.
-    object_files->push_back(tool_outputs[0]);
+    if (!tool_outputs.empty()) {
+      // It's theoretically possible for a compiler to produce more than one
+      // output, but we'll only link to the first output.
+      object_files->push_back(tool_outputs[0]);
+    }
   }
+
+  // Write build commands for source files that have been merged into jumbo
+  // files. Don't add outputs to |object_files| because we don't want to link
+  // them (outputs for jumbo files are linked instead).
+  if (IsJumboEnabledForTarget(target_)) {
+    for (const auto& jumbo_file : target_->jumbo_files()) {
+      for (const auto* source : jumbo_file.second) {
+        // Clear the vector but maintain the max capacity.
+        deps.resize(0);
+        const char* tool_name =
+            PrepareCompilerBuildLine(*target_, *source, pch_deps, input_dep,
+                                     &deps, &tool_outputs, other_files);
+        if (tool_name != Tool::kToolNone) {
+          WriteCompilerBuildLine(*source, deps, order_only_deps, tool_name,
+                                 tool_outputs);
+        }
+      }
+    }
+  }
+
   out_ << std::endl;
 }
 
@@ -647,9 +732,13 @@ void NinjaCBinaryTargetWriter::AddSourceSetFiles(
     UniqueVector<OutputFile>* obj_files) const {
   std::vector<OutputFile> tool_outputs;  // Prevent allocation in loop.
 
+  Target::FileList temp_sources;
+  const Target::FileList& sources =
+      GetSourcesForTarget(source_set, &temp_sources);
+
   // Compute object files for all sources. Only link the first output from
   // the tool if there are more than one.
-  for (const auto& source : source_set->sources()) {
+  for (const auto& source : sources) {
     const char* tool_name = Tool::kToolNone;
     if (source_set->GetOutputFilesForSource(source, &tool_name, &tool_outputs))
       obj_files->push_back(tool_outputs[0]);
