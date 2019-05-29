@@ -5,8 +5,10 @@
 #ifndef TOOLS_GN_TARGET_H_
 #define TOOLS_GN_TARGET_H_
 
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
@@ -58,6 +60,8 @@ class Target : public Item {
 
   using FileList = std::vector<SourceFile>;
   using StringVector = std::vector<std::string>;
+  using JumboSourceFile = std::pair<SourceFile, std::vector<const SourceFile*>>;
+  using JumboFileList = std::vector<JumboSourceFile>;
 
   // We track the set of build files that may affect this target, please refer
   // to Scope for how this is determined.
@@ -309,6 +313,27 @@ class Target : public Item {
     return assert_no_deps_;
   }
 
+  // Set to true if jumbo compilation is allowed for this target.
+  bool is_jumbo_allowed() const { return jumbo_allowed_.value_or(false); }
+  void set_jumbo_allowed(bool jumbo_allowed) { jumbo_allowed_ = jumbo_allowed; }
+  bool is_jumbo_configured() const { return jumbo_allowed_.has_value(); }
+
+  // List of source files not merged in jumbo mode.
+  const FileList& jumbo_excluded_sources() const {
+    return jumbo_excluded_sources_;
+  }
+  FileList& jumbo_excluded_sources() { return jumbo_excluded_sources_; }
+
+  // Maximum number of source files to group in jumbo mode.
+  int jumbo_file_merge_limit() const { return jumbo_file_merge_limit_; }
+  void set_jumbo_file_merge_limit(int limit) {
+    jumbo_file_merge_limit_ = limit;
+  }
+
+  // List of jumbo source files with original merged source files.
+  const JumboFileList& jumbo_files() const { return jumbo_files_; }
+  JumboFileList& jumbo_files() { return jumbo_files_; }
+
   // The toolchain is only known once this target is resolved (all if its
   // dependencies are known). They will be null until then. Generally, this can
   // only be used during target writing.
@@ -490,6 +515,12 @@ class Target : public Item {
 
   // Toolchain used by this target. Null until target is resolved.
   const Toolchain* toolchain_ = nullptr;
+
+  // Jumbo mode configuration.
+  std::optional<bool> jumbo_allowed_;
+  FileList jumbo_excluded_sources_;
+  int jumbo_file_merge_limit_;
+  JumboFileList jumbo_files_;
 
   // Output files. Empty until the target is resolved.
   std::vector<OutputFile> computed_outputs_;
