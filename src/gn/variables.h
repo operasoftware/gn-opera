@@ -36,6 +36,10 @@ extern const char kDefaultToolchain[];
 extern const char kDefaultToolchain_HelpShort[];
 extern const char kDefaultToolchain_Help[];
 
+extern const char kEnableNativeJumbo[];
+extern const char kEnableNativeJumbo_HelpShort[];
+extern const char kEnableNativeJumbo_Help[];
+
 extern const char kGnVersion[];
 extern const char kGnVersion_HelpShort[];
 extern const char kGnVersion_Help[];
@@ -225,6 +229,18 @@ extern const char kIncludeDirs_Help[];
 extern const char kInputs[];
 extern const char kInputs_HelpShort[];
 extern const char kInputs_Help[];
+
+extern const char kJumboAllowed[];
+extern const char kJumboAllowed_HelpShort[];
+extern const char kJumboAllowed_Help[];
+
+extern const char kJumboExcludedSources[];
+extern const char kJumboExcludedSources_HelpShort[];
+extern const char kJumboExcludedSources_Help[];
+
+extern const char kJumboFileMergeLimit[];
+extern const char kJumboFileMergeLimit_HelpShort[];
+extern const char kJumboFileMergeLimit_Help[];
 
 extern const char kLdflags[];
 extern const char kLdflags_HelpShort[];
