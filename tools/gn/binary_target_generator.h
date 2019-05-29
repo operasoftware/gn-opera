@@ -31,6 +31,9 @@ class BinaryTargetGenerator : public TargetGenerator {
   bool FillOutputDir();
   bool FillOutputExtension();
   bool FillAllowCircularIncludesFrom();
+  bool FillJumboAllowed();
+  bool FillJumboExcludedSources();
+  bool FillJumboFileMergeLimit();
 
   Target::OutputType output_type_;
 
