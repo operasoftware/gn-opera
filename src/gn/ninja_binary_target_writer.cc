@@ -4,9 +4,12 @@
 
 #include "gn/ninja_binary_target_writer.h"
 
+#include <algorithm>
 #include <sstream>
 
 #include "base/strings/string_util.h"
+#include "gn/args.h"
+#include "gn/build_settings.h"
 #include "gn/config_values_extractors.h"
 #include "gn/deps_iterator.h"
 #include "gn/filesystem_utils.h"
@@ -48,6 +51,35 @@ void NinjaBinaryTargetWriter::Run() {
 
   NinjaCBinaryTargetWriter writer(target_, out_);
   writer.Run();
+}
+
+bool NinjaBinaryTargetWriter::IsJumboEnabledForTarget(const Target* target) {
+  if (!target->is_jumbo_allowed())
+    return false;
+
+  const Value* value =
+      target->settings()->build_settings()->build_args().GetArgOverride(
+          variables::kEnableNativeJumbo);
+  return value && value->type() == Value::BOOLEAN && value->boolean_value();
+}
+
+const Target::FileList& NinjaBinaryTargetWriter::GetSourcesForTarget(
+    const Target* target,
+    Target::FileList* sources) {
+  const bool use_jumbo = IsJumboEnabledForTarget(target);
+
+  if (use_jumbo) {
+    std::transform(target->jumbo_files().begin(), target->jumbo_files().end(),
+                   std::back_inserter(*sources),
+                   [](const Target::JumboSourceFile& jumbo_file) -> SourceFile {
+                     return jumbo_file.first;
+                   });
+
+    sources->insert(sources->end(), target->jumbo_excluded_sources().begin(),
+                    target->jumbo_excluded_sources().end());
+  }
+
+  return use_jumbo ? *sources : target->sources();
 }
 
 std::vector<OutputFile> NinjaBinaryTargetWriter::WriteInputsStampAndGetDep(
@@ -207,9 +239,13 @@ void NinjaBinaryTargetWriter::AddSourceSetFiles(
     UniqueVector<OutputFile>* obj_files) const {
   std::vector<OutputFile> tool_outputs;  // Prevent allocation in loop.
 
+  Target::FileList temp_sources;
+  const Target::FileList& sources =
+      GetSourcesForTarget(source_set, &temp_sources);
+
   // Compute object files for all sources. Only link the first output from
   // the tool if there are more than one.
-  for (const auto& source : source_set->sources()) {
+  for (const auto& source : sources) {
     const char* tool_name = Tool::kToolNone;
     if (source_set->GetOutputFilesForSource(source, &tool_name, &tool_outputs))
       obj_files->push_back(tool_outputs[0]);
