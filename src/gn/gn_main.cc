@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
     command = commands::kHelp;
   } else if (cmdline.HasSwitch(switches::kVersion)) {
     // Make "--version" print the version and exit.
-    OutputString(std::string(LAST_COMMIT_POSITION) + "\n");
+    OutputString(std::string(LAST_COMMIT_POSITION) +
+                     " - modified by Opera Software AS\n");
     exit(0);
   } else if (args.empty()) {
     // No command, print error and exit.
