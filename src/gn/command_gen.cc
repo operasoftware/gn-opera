@@ -51,6 +51,7 @@ const char kSwitchJsonFileName[] = "json-file-name";
 const char kSwitchJsonIdeScript[] = "json-ide-script";
 const char kSwitchJsonIdeScriptArgs[] = "json-ide-script-args";
 const char kSwitchExportCompileCommands[] = "export-compile-commands";
+const char kSwitchJumboStats[] = "jumbo-stats";
 
 // Collects Ninja rules for each toolchain. The lock protectes the rules.
 struct TargetWriteInfo {
@@ -430,6 +431,11 @@ Compilation Database
       all available targets will be used. This is used for various Clang-based
       tooling, allowing for the replay of individual compilations independent
       of the build system.
+
+Jumbo Build Mode
+
+  --jumbo-stats
+      Shows statistics about Jumbo usage in targets.
 )";
 
 int RunGen(const std::vector<std::string>& args) {
@@ -468,6 +474,10 @@ int RunGen(const std::vector<std::string>& args) {
   if (!setup->Run())
     return 1;
 
+  int jumbo_allowed_count = 0;
+  int jumbo_disallowed_count = 0;
+  std::set<const Target*> jumbo_not_configured_targets;
+
   // Sort the targets in each toolchain according to their label. This makes
   // the ninja files have deterministic content.
   for (auto& cur_toolchain : write_info.rules) {
@@ -476,6 +486,19 @@ int RunGen(const std::vector<std::string>& args) {
                  const NinjaWriter::TargetRulePair& b) {
                 return a.first->label() < b.first->label();
               });
+
+    if (command_line->HasSwitch(kSwitchJumboStats)) {
+      for (const NinjaWriter::TargetRulePair& rule : cur_toolchain.second) {
+        if (rule.first->is_jumbo_configured()) {
+          if (rule.first->is_jumbo_allowed())
+            ++jumbo_allowed_count;
+          else
+            ++jumbo_disallowed_count;
+        } else if (rule.first->IsBinary()) {
+          jumbo_not_configured_targets.insert(rule.first);
+        }
+      }
+    }
   }
 
   Err err;
@@ -511,6 +534,29 @@ int RunGen(const std::vector<std::string>& args) {
   TickDelta elapsed_time = timer.Elapsed();
 
   if (!command_line->HasSwitch(switches::kQuiet)) {
+    if (command_line->HasSwitch(kSwitchJumboStats)) {
+      std::vector<const Target*> not_configured(
+          jumbo_not_configured_targets.begin(),
+          jumbo_not_configured_targets.end());
+      std::sort(not_configured.begin(), not_configured.end(),
+                [](const Target* a, const Target* b) {
+                  return a->sources().size() < b->sources().size();
+                });
+      OutputString("Jumbo is not configured in following targets:\n");
+      for (const Target* target : not_configured) {
+        OutputString(target->label().GetUserVisibleName(false) +
+                         " (" + base::NumberToString(target->sources().size()) +
+                         " sources)\n");
+      }
+      OutputString("\nJumbo is not configured in " +
+                   base::NumberToString(not_configured.size()) + " targets.\n");
+      OutputString("Jumbo is allowed in " +
+                   base::NumberToString(jumbo_allowed_count) + " targets.\n");
+      OutputString("Jumbo is disallowed in " +
+                   base::NumberToString(jumbo_disallowed_count) +
+                   " targets.\n\n");
+    }
+
     OutputString("Done. ", DECORATION_GREEN);
 
     size_t targets_collected = 0;
