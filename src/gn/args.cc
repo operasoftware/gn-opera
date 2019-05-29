@@ -375,6 +375,7 @@ void Args::SetSystemVarsLocked(Scope* dest) const {
   // declared. This is so they can be overridden in a toolchain build args
   // override, and so that they will appear in the "gn args" output.
   Value empty_string(nullptr, std::string());
+  Value false_bool(nullptr, false);
 
   Value os_val(nullptr, std::string(os));
   dest->SetValue(variables::kHostOs, os_val, nullptr);
@@ -386,6 +387,8 @@ void Args::SetSystemVarsLocked(Scope* dest) const {
   dest->SetValue(variables::kTargetCpu, empty_string, nullptr);
   dest->SetValue(variables::kCurrentCpu, empty_string, nullptr);
 
+  dest->SetValue(variables::kEnableNativeJumbo, false_bool, nullptr);
+
   Scope::KeyValueMap& declared_arguments(
       DeclaredArgumentsForToolchainLocked(dest));
   declared_arguments[variables::kHostOs] = os_val;
@@ -394,6 +397,7 @@ void Args::SetSystemVarsLocked(Scope* dest) const {
   declared_arguments[variables::kHostCpu] = arch_val;
   declared_arguments[variables::kCurrentCpu] = empty_string;
   declared_arguments[variables::kTargetCpu] = empty_string;
+  declared_arguments[variables::kEnableNativeJumbo] = false_bool;
 
   // Mark these variables used so the build config file can override them
   // without geting a warning about overwriting an unused variable.
@@ -403,6 +407,7 @@ void Args::SetSystemVarsLocked(Scope* dest) const {
   dest->MarkUsed(variables::kHostOs);
   dest->MarkUsed(variables::kCurrentOs);
   dest->MarkUsed(variables::kTargetOs);
+  dest->MarkUsed(variables::kEnableNativeJumbo);
 }
 
 void Args::ApplyOverridesLocked(const Scope::KeyValueMap& values,
