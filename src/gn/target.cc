@@ -25,6 +25,8 @@ namespace {
 
 using ConfigSet = std::set<const Config*>;
 
+constexpr int kDefaultJumboFileMergeLimit = 50;
+
 // Merges the public configs from the given target to the given config list.
 void MergePublicConfigsFrom(const Target* from_target,
                             UniqueVector<LabelConfigPair>* dest) {
@@ -282,7 +284,8 @@ Dependencies
 Target::Target(const Settings* settings,
                const Label& label,
                const SourceFileSet& build_dependency_files)
-    : Item(settings, label, build_dependency_files) {}
+    : Item(settings, label, build_dependency_files),
+      jumbo_file_merge_limit_(kDefaultJumboFileMergeLimit) {}
 
 Target::~Target() = default;
 

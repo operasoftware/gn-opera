@@ -9,6 +9,7 @@
 #include "gn/c_tool.h"
 #include "gn/config_values.h"
 #include "gn/ninja_target_writer.h"
+#include "gn/target.h"
 #include "gn/toolchain.h"
 #include "gn/unique_vector.h"
 
@@ -32,6 +33,15 @@ class NinjaBinaryTargetWriter : public NinjaTargetWriter {
     UniqueVector<const Target*> framework_deps;
     UniqueVector<const Target*> swiftmodule_deps;
   };
+
+  // Returns true if jumbo mode is globally enabled and allowed for |target|.
+  static bool IsJumboEnabledForTarget(const Target* target);
+
+  // Returns a list of files that should be compiled for |target| considering
+  // jumbo mode. Function may use |sources| as a handy storage and return a
+  // reference to it.
+  static const Target::FileList& GetSourcesForTarget(const Target* target,
+                                                     Target::FileList* sources);
 
   // Writes to the output stream a phony rule for inputs, and
   // returns the target to be appended to source rules that encodes the
